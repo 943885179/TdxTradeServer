@@ -8,7 +8,7 @@
 using namespace restbed;
 using json = nlohmann::json;
 
-TTS_Server::TTS_Server(TTS_SettingObject setting)
+TTS_Server::TTS_Server(const TTS_SettingObject& setting)
 {
     _setting = setting;
     resource = make_shared< Resource >();
@@ -21,7 +21,7 @@ TTS_Server::TTS_Server(TTS_SettingObject setting)
 void TTS_Server::start() {
     reqnum = 0;
     auto callback = bind(&TTS_Server::postMethodHandler, this, placeholders::_1);
-    tradeApi = make_shared<TTS_TradeApi>(_setting.trade_dll_path);
+    tradeApi = make_shared<TTS_TradeApi>(_setting);
     resource->set_path("/api");
     resource->set_method_handler("POST", callback);
 
@@ -195,6 +195,15 @@ void TTS_Server::postMethodHandler(const shared_ptr< Session > session) {
             if (params["client_id"].is_number()
                     && params["amount"].is_string()) {
                 responseBody = tradeApi->repay(params["client_id"].get<int>(), params["amount"].get<string>().c_str()).dump();
+            } else {
+                responseBody = tradeApi->jsonError("error params").dump();
+            }
+        } else if (func == P_QUERYHISTORYDATA) {
+            if (params["client_id"].is_number()
+                    && params["category"].is_number()
+                    && params["begin_date"].is_string()
+                    && params["end_date"].is_string()) {
+                responseBody = tradeApi->queryHistoryData(params["client_id"].get<int>(), params["category"].get<int>(), params["begin_date"].get<string>().c_str(), params["end_date"].get<string>().c_str()).dump();
             } else {
                 responseBody = tradeApi->jsonError("error params").dump();
             }
