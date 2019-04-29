@@ -86,13 +86,17 @@ TTS_Dll::TTS_Dll(const TTS_SettingObject& so, const std::string& accountNo):apiC
     lpGetQuote = (LPFN_GETQUOTE) GetProcAddress(hDLL, "GetQuote");
     lpRepay = (LPFN_REPAY) GetProcAddress(hDLL, "Repay");
     lpQueryHistoryData = (LPFN_QUERYHISTORYDATA) GetProcAddress(hDLL, "QueryHistoryData");
+    lpQueryDatas = (LPFN_QUERYDATAS) GetProcAddress(hDLL, "QueryDatas");
+    lpSendOrders = (LPFN_SENDORDERS) GetProcAddress(hDLL, "SendOrders");
+    lpCancelOrders = (LPFN_CANCELORDERS) GetProcAddress(hDLL, "CancelOrders");
+    lpGetQuotes = (LPFN_GETQUOTES) GetProcAddress(hDLL, "GetQuotes");
     // end load functioins
 
     // initialize tdx
     lpOpenTdx();
 
-    errout = new char[1024];
-    result = new char[1024 * 1024];
+    errout = new char[TTS_ERROR_CONTENT_MAX_SIZE];
+    result = new char[TTS_RESULT_CONTENT_MAX_SIZE];
     initSuccess = true;
     TTS_Dll::seqMutex.lock();
     seq= TTS_Dll::maxSeq++;
@@ -200,6 +204,28 @@ void TTS_Dll::setOutputUtf8(bool utf8) {
     outputUtf8 = utf8;
 }
 
+void TTS_Dll::allocResultsAndErrorInfos(int count, char**& results, char**& errorInfos)
+{
+    results = new char*[count];
+    errorInfos = new char*[count];
+    for (int n = 0; n < count; n++) {
+        results[n] = new char[TTS_RESULT_CONTENT_MAX_SIZE];
+        errorInfos[n] = new char[TTS_ERROR_CONTENT_MAX_SIZE];
+    }
+}
+
+void TTS_Dll::freeResulsAndErrorInfos(int count, char**& results, char**& errorInfos)
+{
+    for (int n = 0; n < count; n++) {
+        delete[] results[n];
+        delete[] errorInfos[n];
+        results[n] = NULL;
+        errorInfos[n] = NULL;
+    }
+
+    delete[] results;
+    delete[] errorInfos;
+}
 
 /**
  * @brief TTS_Dll::logon 登陆到服务器
@@ -214,13 +240,13 @@ void TTS_Dll::setOutputUtf8(bool utf8) {
  * @return data -> { "client_id" : xxx }
  *
  */
-json TTS_Dll::logon(const char* IP, const short Port,
-                        const char* Version, short YybID,
-                        const char* AccountNo, const char* TradeAccount,
-                        const char* JyPassword, const char* TxPassword) {
+json TTS_Dll::logon(const char* ip, const short port,
+                        const char* version, short yybId,
+                        const char* accountNo, const char* tradeAccount,
+                        const char* jyPassword, const char* txPassword) {
     QMutexLocker ml(&apiCallMutex);
     json j;
-    int ret = lpLogon(IP, Port, Version, YybID, AccountNo, TradeAccount, JyPassword, TxPassword, errout);
+    int ret = lpLogon(ip, port, version, yybId, accountNo, tradeAccount, jyPassword, txPassword, errout);
     if (ret == -1) {
         j[TTS_SUCCESS] = false;
         setupErrForJson(errout, j);
@@ -237,9 +263,9 @@ json TTS_Dll::logon(const char* IP, const short Port,
  * @param ClientID cilent_id
  * @return success => true/false
  */
-json TTS_Dll::logoff(int ClientID) {
+json TTS_Dll::logoff(int clientId) {
     QMutexLocker ml(&apiCallMutex);
-    lpLogoff(ClientID);
+    lpLogoff(clientId);
     json j;
     j[TTS_SUCCESS] = true;
     return j;
@@ -251,44 +277,86 @@ json TTS_Dll::logoff(int ClientID) {
  * @param Category 信息类别
  * @return [{}, {}, {} ]
  */
-json TTS_Dll::queryData(int ClientID, int Category) {
+json TTS_Dll::queryData(int clientId, int category) {
     QMutexLocker ml(&apiCallMutex);
-    lpQueryData(ClientID, Category, result, errout);
+    lpQueryData(clientId, category, result, errout);
     return convertTableToJSON(result, errout);
 }
 
 
-json TTS_Dll::sendOrder(int ClientID, int Category ,int PriceType, const char* Gddm,  const char* Zqdm , float Price, int Quantity) {
+json TTS_Dll::sendOrder(int clientId, int category ,int priceType, const char* gddm,  const char* zqdm , float price, int quantity) {
     QMutexLocker ml(&apiCallMutex);
-    lpSendOrder(ClientID, Category, PriceType, Gddm, Zqdm, Price, Quantity, result, errout);
+    lpSendOrder(clientId, category, priceType, gddm, zqdm, price, quantity, result, errout);
     return convertTableToJSON(result, errout);
 }
 
-json TTS_Dll::cancelOrder(int ClientID, const char *ExchangeID, const char *hth) {
+json TTS_Dll::cancelOrder(int clientId, const char *exchangeId, const char *hth) {
     QMutexLocker ml(&apiCallMutex);
-    lpCancelOrder(ClientID, ExchangeID, hth, result, errout);
+    lpCancelOrder(clientId, exchangeId, hth, result, errout);
     return convertTableToJSON(result, errout);
 }
 
-json TTS_Dll::getQuote(int ClientID, const char *Zqdm) {
+json TTS_Dll::getQuote(int clientId, const char *zqdm) {
     QMutexLocker ml(&apiCallMutex);
-    lpGetQuote(ClientID, Zqdm, result, errout);
+    lpGetQuote(clientId, zqdm, result, errout);
     return convertTableToJSON(result, errout);
 }
 
-json TTS_Dll::repay(int ClientID, const char *Amount) {
+json TTS_Dll::repay(int clientId, const char *amount) {
     QMutexLocker ml(&apiCallMutex);
-    lpRepay(ClientID, Amount, result, errout);
+    lpRepay(clientId, amount, result, errout);
     return convertTableToJSON(result, errout);
 }
 
-json TTS_Dll::queryHistoryData(int ClientID, int Category, const char* BeginDate, const char* EndDate) {
+json TTS_Dll::queryHistoryData(int clientId, int category, const char* beginDate, const char* endDate) {
     QMutexLocker ml(&apiCallMutex);
-    lpQueryHistoryData(ClientID, Category, BeginDate, EndDate, result, errout);
+    lpQueryHistoryData(clientId, category, beginDate, endDate, result, errout);
     return convertTableToJSON(result, errout);
 }
 
+json TTS_Dll::sendOrders(int clientId, int categories[], int priceTypes[], const char *gddms[], const char *zqdms[], float prices[], int quantities[], int count) {
+    QMutexLocker ml(&apiCallMutex);
+    char** results;
+    char** errorInfos;
+    allocResultsAndErrorInfos(count, results, errorInfos);
+    lpSendOrders(clientId, categories, priceTypes, gddms, zqdms, prices, quantities, count, results, errorInfos);
+    json resultJSON = convertMultiTableToJSON(count, results, errorInfos);
+    freeResulsAndErrorInfos(count, results, errorInfos);
+    return resultJSON;
+}
 
+json TTS_Dll::queryDatas(int clientId, int categories[], int count) {
+    QMutexLocker ml(&apiCallMutex);
+    char** results;
+    char** errorInfos;
+    allocResultsAndErrorInfos(count, results, errorInfos);
+    lpQueryDatas(clientId, categories, count, results, errorInfos);
+    json resultJSON = convertMultiTableToJSON(count, results, errorInfos);
+    freeResulsAndErrorInfos(count, results, errorInfos);
+    return resultJSON;
+}
+
+json TTS_Dll::cancelOrders(int clientId, const char *exchangeIds[], const char *hths[], int count) {
+    QMutexLocker ml(&apiCallMutex);
+    char** results;
+    char** errorInfos;
+    allocResultsAndErrorInfos(count, results, errorInfos);
+    lpCancelOrders(clientId, exchangeIds, hths, count, results, errorInfos);
+    json resultJSON = convertMultiTableToJSON(count, results, errorInfos);
+    freeResulsAndErrorInfos(count, results, errorInfos);
+    return resultJSON;
+}
+
+json TTS_Dll::getQuotes(int clientId, const char *zqdms[], int count) {
+    QMutexLocker ml(&apiCallMutex);
+    char** results;
+    char** errorInfos;
+    allocResultsAndErrorInfos(count, results, errorInfos);
+    lpGetQuotes(clientId, zqdms, count, results, errorInfos);
+    json resultJSON = convertMultiTableToJSON(count, results, errorInfos);
+    freeResulsAndErrorInfos(count, results, errorInfos);
+    return resultJSON;
+}
 
 void TTS_Dll::setupErrForJson(const char* errout, json& resultJSON)
 {
@@ -301,24 +369,8 @@ void TTS_Dll::setupErrForJson(const char* errout, json& resultJSON)
     }
 }
 
-
-/**
- * @brief TTS_Dll::convertTableToJSON 将\n分割行\t分割字符的类似 csv格式的信息转换为json格式
- * @param result
- * @return  json结构的 [{line1}, {line2} ... ] 信息
- */
-
-json TTS_Dll::convertTableToJSON(const char *result, const char* errout) {
-
-    json resultJSON;
-    if (result[0] == 0) {
-        resultJSON[TTS_SUCCESS] = false;
-        setupErrForJson(errout, resultJSON);
-        return resultJSON;
-    }
-
-    json j;
-    j = json::array();
+void TTS_Dll::_strToTable(const char *result, json& j)
+{
     QString strResult = QString::fromLocal8Bit(result);
     // qInfo() << strResult;
     QStringList sl = strResult.split("\n");
@@ -349,8 +401,57 @@ json TTS_Dll::convertTableToJSON(const char *result, const char* errout) {
             j.push_back(oneRecord);
         }
     }
+}
+
+/**
+ * @brief TTS_Dll::convertTableToJSON 将\n分割行\t分割字符的类似 csv格式的信息转换为json格式
+ * @param result
+ * @return  json结构的 [{line1}, {line2} ... ] 信息
+ */
+
+json TTS_Dll::convertTableToJSON(const char *result, const char* errout) {
+    json resultJSON;
+    if (result[0] == 0) {
+        resultJSON[TTS_SUCCESS] = false;
+        setupErrForJson(errout, resultJSON);
+        return resultJSON;
+    }
+
+    json j;
+    j = json::array();
+    _strToTable(result, j);
     resultJSON[TTS_SUCCESS] = true;
     resultJSON[TTS_DATA] = j;
+    return resultJSON;
+}
+
+json TTS_Dll::convertMultiTableToJSON(int count, char**& results, char**& errouts) {
+    json resultJSON;
+    if (count <=0) {
+        resultJSON[TTS_SUCCESS] = false;
+        setupErrForJson("count is less than zero", resultJSON);
+        return resultJSON;
+    }
+
+    resultJSON[TTS_SUCCESS] = true;
+    resultJSON[TTS_DATA] = json::array();
+
+    for (int n = 0; n < count; n++) {
+        json oneJsonEntry;
+        char* result = results[n];
+        char* errout = errouts[n];
+        if (result[0] == 0) {
+            oneJsonEntry[TTS_SUCCESS] = false;
+            setupErrForJson(errout, oneJsonEntry);
+        }
+        json j;
+        j = json::array();
+        _strToTable(result, j);
+        oneJsonEntry[TTS_SUCCESS] = true;
+        oneJsonEntry[TTS_DATA] = j;
+        resultJSON[TTS_DATA].push_back(oneJsonEntry);
+    }
+
     return resultJSON;
 }
 
